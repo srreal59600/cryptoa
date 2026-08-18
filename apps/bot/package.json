@@ -1,0 +1,28 @@
+{
+  "name": "@whaleradar/bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WhaleRadar interactive Telegram signal bot (VIP / free channels)",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "ioredis": "5.4.1",
+    "pg": "8.13.1",
+    "telegraf": "4.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "20.17.9",
+    "@types/pg": "8.11.10",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.1",
+    "tsx": "4.19.2",
+    "typescript": "5.6.3"
+  }
+}

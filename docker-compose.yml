@@ -1,0 +1,115 @@
+name: whaleradar
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: whaleradar
+      POSTGRES_PASSWORD: whaleradar
+      POSTGRES_DB: whaleradar
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whaleradar"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ./apps/listener
+    command: ["api"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_DSN: postgres://whaleradar:whaleradar@postgres:5432/whaleradar?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      API_ADDR: ":8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Needs real RPC endpoints in .env -> started with: docker compose --profile live up
+  listener:
+    profiles: ["live"]
+    build:
+      context: ./apps/listener
+    command: ["listener"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_DSN: postgres://whaleradar:whaleradar@postgres:5432/whaleradar?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  scorer:
+    build:
+      context: ./apps/listener
+    command: ["scorer"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_DSN: postgres://whaleradar:whaleradar@postgres:5432/whaleradar?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Needs TELEGRAM_BOT_TOKEN in .env -> started with: docker compose --profile bot up
+  bot:
+    profiles: ["bot"]
+    build:
+      context: ./apps/bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_DSN: postgres://whaleradar:whaleradar@postgres:5432/whaleradar?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  dashboard:
+    build:
+      context: ./apps/dashboard
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  redisdata:
