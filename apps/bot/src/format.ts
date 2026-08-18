@@ -44,6 +44,28 @@ const DIRECTION_HEADLINE: Record<string, string> = {
   wallet_transfer: '🐋 WHALE TRANSFER',
 };
 
+function verdictBadge(score: number): string {
+  if (score >= 80) return '\u{1F7E2}\u{1F7E2}';
+  if (score >= 65) return '\u{1F7E2}';
+  if (score >= 45) return '\u26AA';
+  if (score >= 30) return '\u{1F534}';
+  return '\u{1F534}\u{1F534}';
+}
+
+function signed(value: number): string {
+  return `${value >= 0 ? '+' : '-'}${usd(Math.abs(value))}`;
+}
+
+/** Builds the 24h read on the token so the alert is actionable, not just news. */
+function analysis(alert: Alert): string[] {
+  if (!alert.verdict) return [];
+  const lines = [
+    `*24h read:* ${verdictBadge(alert.score)} ${esc(alert.verdict)} \\(${esc(alert.score.toFixed(0))}/100\\)`,
+    `*24h net flow:* ${esc(signed(alert.net_accum_24h_usd))} · *whale tx:* ${esc(alert.whale_tx_24h)} · *alıcı:* ${esc(alert.buyers_24h)}`,
+  ];
+  return lines;
+}
+
 function sizeBadge(usdValue: number): string {
   if (usdValue >= 10_000_000) return '🐋🐋🐋';
   if (usdValue >= 1_000_000) return '🐋🐋';
@@ -81,6 +103,9 @@ export function renderAlert(
   ];
 
   if (alert.note) lines.push('', `_${esc(alert.note)}_`);
+
+  const context = analysis(alert);
+  if (context.length > 0) lines.push('', ...context);
 
   lines.push(
     '',

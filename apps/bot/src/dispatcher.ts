@@ -11,8 +11,11 @@ const ALERT_CHANNEL = 'whaleradar:alerts';
 
 /**
  * Consumes alerts published by the Go listener and fans them out:
- *  - VIP channel + VIP direct messages: alerts at or above the VIP threshold
+ *  - VIP channel: alerts at or above the VIP threshold
  *  - Free channel: the smaller [freeChannelMinUsd, vipChannelMinUsd) band
+ *
+ * Direct messages are opt-in only: a VIP user is DM'd when the alert touches an
+ * address or token on their /watch list, never for the general feed.
  */
 export class AlertDispatcher {
   private readonly sub: Redis;
@@ -58,7 +61,7 @@ export class AlertDispatcher {
       if (this.cfg.vipChannelId) {
         this.channels.enqueue(this.cfg.vipChannelId, vipText, alert.amount_usd);
       }
-      await this.fanoutToVipUsers(alert, vipText);
+      await this.fanoutToWatchers(alert, vipText);
       return;
     }
 
@@ -80,7 +83,7 @@ export class AlertDispatcher {
     }
   }
 
-  private async fanoutToVipUsers(alert: Alert, text: string): Promise<void> {
+  private async fanoutToWatchers(alert: Alert, text: string): Promise<void> {
     const [users, watchIndex] = await Promise.all([this.db.activeVipUsers(), this.db.watchIndex()]);
     const involved = [alert.token, alert.from, alert.to]
       .filter(Boolean)
@@ -88,13 +91,8 @@ export class AlertDispatcher {
 
     for (const user of users) {
       const watched = watchIndex.get(Number(user.telegram_id));
-      const isWatched = watched ? involved.some((a) => watched.has(a)) : false;
-      const chains = user.chains ?? [];
-
-      if (!isWatched) {
-        if (alert.amount_usd < Number(user.min_usd)) continue;
-        if (chains.length > 0 && !chains.includes(alert.chain_id)) continue;
-      }
+      if (!watched || !involved.some((a) => watched.has(a))) continue;
+      if (alert.amount_usd < Number(user.min_usd)) continue;
       // delivered_alerts doubles as the de-duplication guard across restarts.
       if (!(await this.db.recordDelivery(alert.id, Number(user.telegram_id)))) continue;
 

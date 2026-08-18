@@ -19,6 +19,10 @@ export interface Alert {
   score: number;
   note: string;
   created_at: string;
+  net_accum_24h_usd: number;
+  buyers_24h: number;
+  whale_tx_24h: number;
+  verdict: string;
 }
 
 export interface BotUser {

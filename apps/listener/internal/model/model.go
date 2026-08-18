@@ -103,6 +103,13 @@ type Alert struct {
 	Score       float64   `json:"score"`
 	Note        string    `json:"note"`
 	CreatedAt   time.Time `json:"created_at"`
+
+	// 24h context attached to whale transfer alerts so a reader can judge the
+	// trade instead of reacting to a single isolated transaction.
+	NetAccum24hUSD float64 `json:"net_accum_24h_usd"`
+	Buyers24h      int     `json:"buyers_24h"`
+	WhaleTx24h     int     `json:"whale_tx_24h"`
+	Verdict        string  `json:"verdict"`
 }
 
 // TokenScore is the 24h accumulation snapshot for one token on one chain.

@@ -201,6 +201,28 @@ type ScoreInput struct {
 	PreviousScore float64
 }
 
+// TokenWindow returns the flow aggregate of a single token over the window,
+// used to attach 24h context to an outgoing alert.
+func (p *Postgres) TokenWindow(ctx context.Context, chainID uint64, token common.Address, window time.Duration) (ScoreInput, error) {
+	in := ScoreInput{ChainID: chainID, Token: token.Hex()}
+	err := p.pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(MAX(token_symbol), ''),
+			COALESCE(SUM(amount_usd) FILTER (WHERE direction = 'dex_buy'), 0),
+			COALESCE(SUM(amount_usd) FILTER (WHERE direction = 'dex_sell'), 0),
+			COALESCE(SUM(amount_usd) FILTER (WHERE direction = 'cex_deposit'), 0),
+			COALESCE(SUM(amount_usd) FILTER (WHERE direction = 'cex_withdrawal'), 0),
+			COUNT(DISTINCT to_address) FILTER (WHERE direction IN ('dex_buy','cex_withdrawal')),
+			COUNT(*),
+			COALESCE(MAX(amount_usd), 0)
+		FROM transfers
+		WHERE chain_id = $1 AND token = $2 AND seen_at >= now() - $3::interval`,
+		int64(chainID), in.Token, fmt.Sprintf("%d seconds", int(window.Seconds()))).
+		Scan(&in.Symbol, &in.DexBuyUSD, &in.DexSellUSD, &in.CEXInflowUSD, &in.CEXOutflowUSD,
+			&in.UniqueBuyers, &in.WhaleTxCount, &in.LargestTrade)
+	return in, err
+}
+
 // AggregateWindow returns per-token 24h flow aggregates for scoring.
 func (p *Postgres) AggregateWindow(ctx context.Context, window time.Duration) ([]ScoreInput, error) {
 	rows, err := p.pool.Query(ctx, `

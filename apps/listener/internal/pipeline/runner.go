@@ -27,6 +27,9 @@ import (
 // the largest one is published as a single alert.
 const alertWindow = 6 * time.Second
 
+// contextWindow is the lookback used to attach 24h flow context to an alert.
+const contextWindow = 24 * time.Hour
+
 // Runner owns the full listen -> decode -> price -> filter -> persist -> alert
 // pipeline for a single chain.
 type Runner struct {
@@ -302,7 +305,39 @@ func (r *Runner) publishTransferAlert(ctx context.Context, t model.Transfer) err
 		Note:        directionNote(t.Direction),
 		CreatedAt:   time.Now().UTC(),
 	}
+	r.attachContext(ctx, &a, t)
 	return store.PublishAlert(ctx, r.rdb, a)
+}
+
+// attachContext enriches an alert with the token's 24h flow so the message
+// answers "is this worth acting on?" instead of just "something moved".
+func (r *Runner) attachContext(ctx context.Context, a *model.Alert, t model.Transfer) {
+	in, err := r.pg.TokenWindow(ctx, t.ChainID, t.Token, contextWindow)
+	if err != nil {
+		r.logger.Debug("token context lookup failed", "token", t.TokenSymbol, "err", err)
+		return
+	}
+	s := scoring.Compute(in, time.Now().UTC())
+	a.Score = s.Score
+	a.NetAccum24hUSD = s.NetAccumUSD
+	a.Buyers24h = s.UniqueBuyers
+	a.WhaleTx24h = s.WhaleTxCount
+	a.Verdict = verdict(s.Score)
+}
+
+func verdict(score float64) string {
+	switch {
+	case score >= 80:
+		return "Strong accumulation"
+	case score >= 65:
+		return "Accumulation"
+	case score >= 45:
+		return "Neutral flow"
+	case score >= 30:
+		return "Distribution"
+	default:
+		return "Heavy distribution"
+	}
 }
 
 func directionNote(d model.Direction) string {
