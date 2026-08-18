@@ -51,7 +51,10 @@ function sizeBadge(usdValue: number): string {
 }
 
 /** Renders a whale transfer / accumulation alert as MarkdownV2. */
-export function renderAlert(alert: Alert, opts: { dashboardUrl: string; tier: 'vip' | 'free' }): string {
+export function renderAlert(
+  alert: Alert,
+  opts: { dashboardUrl: string; tier: 'vip' | 'free'; vipMinUsd?: number },
+): string {
   if (alert.kind === 'accumulation') {
     return [
       `📈 *ACCUMULATION SIGNAL* ${esc(alert.token_symbol || short(alert.token))}`,
@@ -85,7 +88,8 @@ export function renderAlert(alert: Alert, opts: { dashboardUrl: string; tier: 'v
   );
 
   if (opts.tier === 'free') {
-    lines.push('', esc('⏱ Delayed feed — VIP members received this alert in real time.'));
+    const vipFloor = usd(opts.vipMinUsd ?? 100_000);
+    lines.push('', esc(`🔓 Free feed. ${vipFloor}+ whale flow goes to the VIP channel.`));
   }
   return lines.join('\n');
 }

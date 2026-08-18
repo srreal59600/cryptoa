@@ -58,13 +58,17 @@ Tüm ayarlar `.env` üzerinden (`.env.example` içinde açıklamalı liste). Kri
 | `ETH_WS_URL` / `ETH_HTTP_URL` (+ `BSC_`, `POLYGON_`, `ARBITRUM_`) | Zincir RPC uçları. WS log aboneliği, HTTP kontrat çağrıları için. |
 | `ENABLED_CHAINS` | Çalıştırılacak chain ID listesi. |
 | `MIN_USD` | Bu değerin altındaki transferler ingest'te atılır (varsayılan $50k). |
-| `ALERT_USD` | Anlık alert eşiği (varsayılan $100k). |
-| `FREE_CHANNEL_USD` / `FREE_DELAY_SECONDS` | Free kanalın eşiği ve gecikmesi. |
+| `FREE_CHANNEL_MIN_USD` / `ALERT_USD` | Free kanal bandı `$50k–$100k`, VIP kanal `$100k+`. |
+| `FREE_DELAY_SECONDS` | Free kanal gönderimine opsiyonel gecikme (0 = anında). |
+| `SELL_MIN_USD` | Satış/borsaya giriş yönlü hareketler için alert tabanı (varsayılan $500k). Alım yönlü akış `FREE_CHANNEL_MIN_USD`'den itibaren alert olur. |
+| `UNTAGGED_MIN_USD` | Sıradan cüzdan/mint/burn transferleri için alert tabanı; `0` (varsayılan) bunları kanallara hiç göndermez, sadece dashboard'da kalır. |
+| `CHANNEL_INTERVAL_MS` / `CHANNEL_QUEUE_SIZE` | Kanal başına mesaj aralığı ve kuyruk derinliği (Telegram ~20 mesaj/dk sınırı). |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_VIP_CHANNEL_ID`, `TELEGRAM_FREE_CHANNEL_ID`, `TELEGRAM_ADMIN_IDS` | Bot kimlik bilgileri. |
 | `ADMIN_API_KEY` | `/api/admin/*` uçları ve dashboard admin sayfası için. |
 
-Ücretsiz WS sağlayıcıları çoğu zaman `eth_subscribe` desteklemez; Alchemy / QuickNode /
-Ankr gibi bir sağlayıcı önerilir.
+`.env.example` içindeki `publicnode.com` uçları ücretsizdir ve `eth_subscribe` destekler
+(4 zincirde de test edildi). Yoğun kullanımda Alchemy / QuickNode gibi bir sağlayıcıya
+geçmek daha stabildir.
 
 ## Mimari
 

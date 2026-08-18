@@ -4,10 +4,16 @@ export interface BotConfig {
   postgresDsn: string;
   vipChannelId?: string;
   freeChannelId?: string;
-  /** Free channel only receives alerts at or above this size... */
-  freeChannelUsd: number;
-  /** ...and only after this delay, so VIP keeps its edge. */
+  /** Free channel band lower bound (inclusive). */
+  freeChannelMinUsd: number;
+  /** VIP threshold: at or above it alerts go to VIP only, below it to the free channel. */
+  vipChannelMinUsd: number;
+  /** Optional extra delay before posting to the free channel. */
   freeDelaySeconds: number;
+  /** Minimum spacing between two channel posts (Telegram allows ~20/min). */
+  channelIntervalMs: number;
+  /** Per-channel backlog before the smallest alerts get dropped. */
+  channelQueueSize: number;
   /** Default DM threshold for VIP subscribers. */
   defaultMinUsd: number;
   adminIds: number[];
@@ -35,8 +41,11 @@ export function loadConfig(): BotConfig {
       'postgres://whaleradar:whaleradar@localhost:5432/whaleradar?sslmode=disable',
     vipChannelId: process.env.TELEGRAM_VIP_CHANNEL_ID,
     freeChannelId: process.env.TELEGRAM_FREE_CHANNEL_ID,
-    freeChannelUsd: num(process.env.FREE_CHANNEL_USD, 1_000_000),
-    freeDelaySeconds: num(process.env.FREE_DELAY_SECONDS, 900),
+    freeChannelMinUsd: num(process.env.FREE_CHANNEL_MIN_USD, 50_000),
+    vipChannelMinUsd: num(process.env.ALERT_USD, 100_000),
+    freeDelaySeconds: num(process.env.FREE_DELAY_SECONDS, 0),
+    channelIntervalMs: num(process.env.CHANNEL_INTERVAL_MS, 4_000),
+    channelQueueSize: num(process.env.CHANNEL_QUEUE_SIZE, 25),
     defaultMinUsd: num(process.env.ALERT_USD, 100_000),
     adminIds: (process.env.TELEGRAM_ADMIN_IDS ?? '')
       .split(',')

@@ -4,24 +4,32 @@ import { Telegraf } from 'telegraf';
 import type { BotConfig } from './config';
 import type { Database } from './db';
 import { renderAlert } from './format';
+import { RateLimitedSender } from './sender';
 import type { Alert } from './types';
 
 const ALERT_CHANNEL = 'whaleradar:alerts';
 
 /**
  * Consumes alerts published by the Go listener and fans them out:
- *  - VIP channel + VIP direct messages: instantly
- *  - Free channel: only very large alerts, after a delay
+ *  - VIP channel + VIP direct messages: alerts at or above the VIP threshold
+ *  - Free channel: the smaller [freeChannelMinUsd, vipChannelMinUsd) band
  */
 export class AlertDispatcher {
   private readonly sub: Redis;
+  private readonly channels: RateLimitedSender;
+  private readonly dms: RateLimitedSender;
 
   constructor(
-    private readonly bot: Telegraf,
+    bot: Telegraf,
     private readonly db: Database,
     private readonly cfg: BotConfig,
   ) {
     this.sub = new Redis(cfg.redisUrl, { maxRetriesPerRequest: null });
+    this.channels = new RateLimitedSender(bot, {
+      intervalMs: cfg.channelIntervalMs,
+      maxQueue: cfg.channelQueueSize,
+    });
+    this.dms = new RateLimitedSender(bot, { intervalMs: 1_000, maxQueue: 50 });
   }
 
   async start(): Promise<void> {
@@ -46,16 +54,29 @@ export class AlertDispatcher {
   private async handle(alert: Alert): Promise<void> {
     const vipText = renderAlert(alert, { dashboardUrl: this.cfg.dashboardUrl, tier: 'vip' });
 
-    if (this.cfg.vipChannelId) {
-      await this.send(this.cfg.vipChannelId, vipText);
+    if (alert.amount_usd >= this.cfg.vipChannelMinUsd) {
+      if (this.cfg.vipChannelId) {
+        this.channels.enqueue(this.cfg.vipChannelId, vipText, alert.amount_usd);
+      }
+      await this.fanoutToVipUsers(alert, vipText);
+      return;
     }
-    await this.fanoutToVipUsers(alert, vipText);
 
-    if (this.cfg.freeChannelId && alert.amount_usd >= this.cfg.freeChannelUsd) {
-      const freeText = renderAlert(alert, { dashboardUrl: this.cfg.dashboardUrl, tier: 'free' });
-      setTimeout(() => {
-        void this.send(this.cfg.freeChannelId!, freeText);
-      }, this.cfg.freeDelaySeconds * 1000);
+    if (this.cfg.freeChannelId && alert.amount_usd >= this.cfg.freeChannelMinUsd) {
+      const freeText = renderAlert(alert, {
+        dashboardUrl: this.cfg.dashboardUrl,
+        tier: 'free',
+        vipMinUsd: this.cfg.vipChannelMinUsd,
+      });
+      const chatId = this.cfg.freeChannelId;
+      if (this.cfg.freeDelaySeconds > 0) {
+        setTimeout(
+          () => this.channels.enqueue(chatId, freeText, alert.amount_usd),
+          this.cfg.freeDelaySeconds * 1000,
+        );
+      } else {
+        this.channels.enqueue(chatId, freeText, alert.amount_usd);
+      }
     }
   }
 
@@ -77,20 +98,7 @@ export class AlertDispatcher {
       // delivered_alerts doubles as the de-duplication guard across restarts.
       if (!(await this.db.recordDelivery(alert.id, Number(user.telegram_id)))) continue;
 
-      await this.send(String(user.telegram_id), text);
-      // Stay well below Telegram's ~30 messages/second limit.
-      await new Promise((resolve) => setTimeout(resolve, 40));
-    }
-  }
-
-  private async send(chatId: string, text: string): Promise<void> {
-    try {
-      await this.bot.telegram.sendMessage(chatId, text, {
-        parse_mode: 'MarkdownV2',
-        link_preview_options: { is_disabled: true },
-      });
-    } catch (err) {
-      console.error(`sending to ${chatId} failed`, err);
+      this.dms.enqueue(String(user.telegram_id), text, alert.amount_usd);
     }
   }
 }

@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"log/slog"
+	"math"
 	"math/big"
 	"sync"
 	"time"
@@ -22,6 +23,10 @@ import (
 	"github.com/whaleradar/listener/internal/tagging"
 )
 
+// alertWindow is how long legs of the same transaction are collapsed before
+// the largest one is published as a single alert.
+const alertWindow = 6 * time.Second
+
 // Runner owns the full listen -> decode -> price -> filter -> persist -> alert
 // pipeline for a single chain.
 type Runner struct {
@@ -36,6 +41,9 @@ type Runner struct {
 	rdb     *redis.Client
 	subTx   *eth.Subscriber
 	subPool *eth.Subscriber
+
+	pendingMu sync.Mutex
+	pending   map[common.Hash]model.Transfer
 
 	mu       sync.RWMutex
 	tracked  map[common.Address]struct{}
@@ -61,6 +69,7 @@ func NewRunner(ctx context.Context, cfg config.Config, chain config.Chain, wsURL
 		pg:      pg,
 		rdb:     rdb,
 		tracked: map[common.Address]struct{}{},
+		pending: map[common.Hash]model.Transfer{},
 	}
 
 	for _, t := range chain.Tokens {
@@ -207,15 +216,69 @@ func (r *Runner) handleTransfer(ctx context.Context, l types.Log) error {
 	r.logger.Info("whale transfer",
 		"symbol", symbol, "usd", usd, "direction", direction, "tx", l.TxHash.Hex())
 
-	if usd >= r.cfg.AlertUSD {
-		return r.publishTransferAlert(ctx, t)
+	if r.alertable(t) {
+		r.queueAlert(t)
 	}
 	return nil
 }
 
+// queueAlert collapses a transaction into a single alert. A swap or a routed
+// transfer emits several Transfer logs; only the largest leg is published,
+// after a short window that lets the remaining legs of the same tx arrive.
+func (r *Runner) queueAlert(t model.Transfer) {
+	r.pendingMu.Lock()
+	defer r.pendingMu.Unlock()
+
+	if best, ok := r.pending[t.TxHash]; ok {
+		if t.AmountUSD > best.AmountUSD {
+			r.pending[t.TxHash] = t
+		}
+		return
+	}
+	r.pending[t.TxHash] = t
+	time.AfterFunc(alertWindow, func() { r.flushAlert(t.TxHash) })
+}
+
+func (r *Runner) flushAlert(tx common.Hash) {
+	r.pendingMu.Lock()
+	t, ok := r.pending[tx]
+	delete(r.pending, tx)
+	r.pendingMu.Unlock()
+	if !ok {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := r.publishTransferAlert(ctx, t); err != nil {
+		r.logger.Warn("publishing alert failed", "tx", tx.Hex(), "err", err)
+	}
+}
+
+// alertable keeps the Telegram channels actionable: accumulation flow
+// (exchange withdrawals, DEX buys) alerts from the free-tier floor up,
+// distribution flow needs to be much larger to be worth a message, and plain
+// wallet-to-wallet / mint / burn traffic stays out of the channels entirely
+// unless UntaggedMinUSD is explicitly enabled. Everything is still persisted
+// and visible on the dashboard.
+func (r *Runner) alertable(t model.Transfer) bool {
+	switch t.Direction {
+	case model.DirCEXWithdrawal, model.DirDexBuy:
+		return t.AmountUSD >= r.cfg.FreeMinUSD
+	case model.DirCEXDeposit, model.DirDexSell:
+		return t.AmountUSD >= math.Max(r.cfg.FreeMinUSD, r.cfg.SellMinUSD)
+	default:
+		if r.cfg.UntaggedMinUSD <= 0 {
+			return false
+		}
+		return t.AmountUSD >= math.Max(r.cfg.FreeMinUSD, r.cfg.UntaggedMinUSD)
+	}
+}
+
 func (r *Runner) publishTransferAlert(ctx context.Context, t model.Transfer) error {
+	// Below the VIP threshold the trade belongs to the free-tier band.
 	tier := "vip"
-	if t.AmountUSD >= r.cfg.FreeChannelUSD {
+	if t.AmountUSD < r.cfg.AlertUSD {
 		tier = "free"
 	}
 	a := model.Alert{

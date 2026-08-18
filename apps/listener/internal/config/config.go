@@ -15,10 +15,16 @@ type Config struct {
 
 	// MinUSD is the hard floor below which transfers are discarded.
 	MinUSD float64
-	// AlertUSD is the instant-alert threshold pushed to Telegram.
+	// AlertUSD is the VIP threshold: transfers at or above it are VIP-tier alerts.
 	AlertUSD float64
-	// FreeChannelUSD is the (higher) threshold mirrored to the free channel.
-	FreeChannelUSD float64
+	// FreeMinUSD is the lower bound of the free-tier band [FreeMinUSD, AlertUSD).
+	FreeMinUSD float64
+	// UntaggedMinUSD is the alert floor for plain wallet-to-wallet, mint and
+	// burn transfers. Zero (the default) keeps them out of the channels.
+	UntaggedMinUSD float64
+	// SellMinUSD is the alert floor for distribution flow (exchange deposits,
+	// DEX sells), which is only worth a message when it is large.
+	SellMinUSD float64
 
 	APIAddr        string
 	ScorerInterval time.Duration
@@ -34,7 +40,9 @@ func Load() (Config, error) {
 		RedisURL:       env("REDIS_URL", "redis://localhost:6379/0"),
 		MinUSD:         envFloat("MIN_USD", 50_000),
 		AlertUSD:       envFloat("ALERT_USD", 100_000),
-		FreeChannelUSD: envFloat("FREE_CHANNEL_USD", 1_000_000),
+		FreeMinUSD:     envFloat("FREE_CHANNEL_MIN_USD", 50_000),
+		UntaggedMinUSD: envFloat("UNTAGGED_MIN_USD", 0),
+		SellMinUSD:     envFloat("SELL_MIN_USD", 500_000),
 		APIAddr:        env("API_ADDR", ":8080"),
 		ScorerInterval: envDuration("SCORER_INTERVAL", 5*time.Minute),
 	}
