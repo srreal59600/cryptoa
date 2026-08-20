@@ -2,11 +2,13 @@
 
 import { useState } from 'react';
 
-import { Card, ChainBadge, EmptyState, ScoreBar, Td, Th, UsdCell } from '@/components/ui';
+import { Card, ChainBadge, EmptyState, ScoreBar, Td, Th, TokenCell, UsdCell } from '@/components/ui';
 import { usePoll } from '@/hooks/usePoll';
 import { api, CHAINS, shortAddress, usd } from '@/lib/api';
+import { useI18n } from '@/lib/i18n';
 
 export default function TokensPage() {
+  const { t } = useI18n();
   const [chainId, setChainId] = useState(0);
   const query = `?chain_id=${chainId}&limit=100`;
   const scores = usePoll(() => api.scores(query), 30_000, [query]);
@@ -15,17 +17,15 @@ export default function TokensPage() {
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Accumulation scores</h1>
-          <p className="text-sm text-slate-400">
-            0–100 score from 24h DEX net buying versus net exchange withdrawals, weighted by size and buyer breadth.
-          </p>
+          <h1 className="text-2xl font-semibold">{t('tokens.title')}</h1>
+          <p className="text-sm text-slate-400">{t('tokens.subtitle')}</p>
         </div>
         <select
           value={chainId}
           onChange={(e) => setChainId(Number(e.target.value))}
           className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
         >
-          <option value={0}>All chains</option>
+          <option value={0}>{t('transfers.allChains')}</option>
           {Object.entries(CHAINS).map(([id, c]) => (
             <option key={id} value={id}>{c.name}</option>
           ))}
@@ -37,15 +37,15 @@ export default function TokensPage() {
           <table className="w-full">
             <thead className="border-b border-slate-800">
               <tr>
-                <Th>Token</Th>
-                <Th>Score</Th>
-                <Th>Regime</Th>
-                <Th>DEX buys</Th>
-                <Th>DEX sells</Th>
-                <Th>CEX outflow</Th>
-                <Th>CEX inflow</Th>
-                <Th>Net</Th>
-                <Th>Whale txs</Th>
+                <Th>{t('common.token')}</Th>
+                <Th>{t('common.score')}</Th>
+                <Th>{t('common.regime')}</Th>
+                <Th>{t('common.dexBuys')}</Th>
+                <Th>{t('common.dexSells')}</Th>
+                <Th>{t('common.cexOutflow')}</Th>
+                <Th>{t('common.cexInflow')}</Th>
+                <Th>{t('common.net')}</Th>
+                <Th>{t('common.whaleTxs')}</Th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -54,7 +54,7 @@ export default function TokensPage() {
                   <Td>
                     <div className="flex items-center gap-2">
                       <ChainBadge chainId={s.chain_id} />
-                      <span className="font-medium text-slate-100">{s.symbol || shortAddress(s.token)}</span>
+                      <TokenCell chainId={s.chain_id} token={s.token} symbol={s.symbol || shortAddress(s.token)} />
                     </div>
                   </Td>
                   <Td><ScoreBar score={s.score} /></Td>
@@ -70,7 +70,7 @@ export default function TokensPage() {
             </tbody>
           </table>
         ) : (
-          <EmptyState message={scores.loading ? 'Loading scores…' : 'The scorer publishes results every few minutes once transfers are recorded.'} />
+          <EmptyState message={scores.loading ? t('tokens.loading') : t('tokens.empty')} />
         )}
       </Card>
     </div>

@@ -25,6 +25,8 @@ type server struct {
 	rdb      *redis.Client
 	logger   *slog.Logger
 	adminKey string
+	botToken string
+	secure   bool
 }
 
 func main() {
@@ -53,7 +55,15 @@ func main() {
 	}
 	defer rdb.Close()
 
-	s := &server{cfg: cfg, pg: pg, rdb: rdb, logger: logger, adminKey: os.Getenv("ADMIN_API_KEY")}
+	s := &server{
+		cfg:      cfg,
+		pg:       pg,
+		rdb:      rdb,
+		logger:   logger,
+		adminKey: os.Getenv("ADMIN_API_KEY"),
+		botToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
+		secure:   strings.HasPrefix(os.Getenv("PUBLIC_URL"), "https://"),
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.APIAddr,
@@ -174,13 +184,67 @@ func (s *server) routes() http.Handler {
 	})
 
 	mux.HandleFunc("GET /api/alerts", func(w http.ResponseWriter, r *http.Request) {
-		alerts, err := store.RecentAlerts(r.Context(), s.rdb, int64(intParam(r.URL.Query().Get("limit"), 50)))
+		alerts, err := store.RecentAlerts(r.Context(), s.rdb,
+			int64(intParam(r.URL.Query().Get("limit"), 50)),
+			floatParam(r.URL.Query().Get("min_usd"), 0))
 		if err != nil {
 			s.fail(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, alerts)
 	})
+
+	mux.HandleFunc("GET /api/analytics", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		data, err := s.pg.AnalyticsWindow(r.Context(),
+			intParam(q.Get("hours"), 24),
+			uint64(intParam(q.Get("chain_id"), 0)),
+			floatParam(q.Get("min_usd"), s.cfg.MinUSD))
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, data)
+	})
+
+	mux.HandleFunc("GET /api/performance", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		rows, err := s.pg.Performance(r.Context(), intParam(q.Get("days"), 30), strings.TrimSpace(q.Get("direction")))
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, rows)
+	})
+
+	mux.Handle("GET /api/outcomes", s.vipOnly(func(w http.ResponseWriter, r *http.Request) {
+		rows, err := s.pg.ListOutcomes(r.Context(), intParam(r.URL.Query().Get("limit"), 50))
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, rows)
+	}))
+
+	mux.Handle("GET /api/smart-wallets", s.vipOnly(func(w http.ResponseWriter, r *http.Request) {
+		rows, err := s.pg.ListSmartWallets(r.Context(), intParam(r.URL.Query().Get("limit"), 50))
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		type walletDTO struct {
+			store.WalletPerf
+			Label string `json:"label"`
+		}
+		out := make([]walletDTO, 0, len(rows))
+		for _, w := range rows {
+			out = append(out, walletDTO{WalletPerf: w, Label: scoring.WalletLabel(w.Score)})
+		}
+		writeJSON(w, http.StatusOK, out)
+	}))
+
+	s.whaleRoutes(mux)
+	s.authRoutes(mux)
 
 	// --- admin ---
 	mux.Handle("GET /api/admin/users", s.admin(func(w http.ResponseWriter, r *http.Request) {
@@ -267,7 +331,10 @@ func cors(next http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Admin-Key")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Admin-Key, Authorization")
+		if origin != "*" {
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

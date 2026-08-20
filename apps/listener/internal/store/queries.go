@@ -252,3 +252,26 @@ func (p *Postgres) SetUserTier(ctx context.Context, telegramID int64, tier strin
 		telegramID, tier, expires)
 	return err
 }
+
+// Prune deletes raw history older than retention so the database stays flat in
+// steady state. Alert outcomes, wallet scores and user data are kept: they are
+// the track record the product is built on.
+func (p *Postgres) Prune(ctx context.Context, retention time.Duration) (int64, error) {
+	if retention <= 0 {
+		return 0, nil
+	}
+	secs := retention.Seconds()
+	var total int64
+	for _, q := range []string{
+		`DELETE FROM transfers      WHERE seen_at     < now() - make_interval(secs => $1)`,
+		`DELETE FROM score_history  WHERE computed_at < now() - make_interval(secs => $1)`,
+		`DELETE FROM delivered_alerts WHERE delivered_at < now() - make_interval(secs => $1)`,
+	} {
+		tag, err := p.pool.Exec(ctx, q, secs)
+		if err != nil {
+			return total, err
+		}
+		total += tag.RowsAffected()
+	}
+	return total, nil
+}

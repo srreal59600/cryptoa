@@ -2,9 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { ApiError } from '@/lib/api';
+
 interface PollState<T> {
   data: T | null;
   error: string | null;
+  /** HTTP status of the last failure, so pages can show sign-in or paywall states. */
+  status: number | null;
   loading: boolean;
   refresh: () => void;
 }
@@ -13,6 +17,7 @@ interface PollState<T> {
 export function usePoll<T>(fetcher: () => Promise<T>, intervalMs = 10_000, deps: unknown[] = []): PollState<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
@@ -22,8 +27,10 @@ export function usePoll<T>(fetcher: () => Promise<T>, intervalMs = 10_000, deps:
       const result = await fetcherRef.current();
       setData(result);
       setError(null);
+      setStatus(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'request failed');
+      setStatus(err instanceof ApiError ? err.status : null);
     } finally {
       setLoading(false);
     }
@@ -37,5 +44,5 @@ export function usePoll<T>(fetcher: () => Promise<T>, intervalMs = 10_000, deps:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load, intervalMs, ...deps]);
 
-  return { data, error, loading, refresh: () => void load() };
+  return { data, error, status, loading, refresh: () => void load() };
 }

@@ -43,16 +43,24 @@ func PublishAlert(ctx context.Context, rdb *redis.Client, a model.Alert) error {
 	return err
 }
 
-// RecentAlerts reads the newest alerts from the capped list.
-func RecentAlerts(ctx context.Context, rdb *redis.Client, limit int64) ([]model.Alert, error) {
-	raw, err := rdb.LRange(ctx, AlertStream, 0, limit-1).Result()
+// RecentAlerts reads the newest alerts from the capped list, keeping only the
+// ones worth at least minUSD so the feed shows whales instead of every move.
+func RecentAlerts(ctx context.Context, rdb *redis.Client, limit int64, minUSD float64) ([]model.Alert, error) {
+	// The whole capped list is scanned because the filter can reject most of it.
+	raw, err := rdb.LRange(ctx, AlertStream, 0, -1).Result()
 	if err != nil {
 		return nil, err
 	}
-	out := make([]model.Alert, 0, len(raw))
+	out := make([]model.Alert, 0, limit)
 	for _, r := range raw {
+		if int64(len(out)) >= limit {
+			break
+		}
 		var a model.Alert
 		if err := json.Unmarshal([]byte(r), &a); err != nil {
+			continue
+		}
+		if a.AmountUSD < minUSD {
 			continue
 		}
 		out = append(out, a)

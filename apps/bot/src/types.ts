@@ -23,6 +23,18 @@ export interface Alert {
   buyers_24h: number;
   whale_tx_24h: number;
   verdict: string;
+  wallet_score: number;
+  wallet_trades: number;
+  wallet_label: string;
+  smart_wallets_24h: number;
+  impact_pct: number;
+  volume_24h_usd: number;
+  liquidity_warning: boolean;
+  wash_risk: boolean;
+  wash_reason: string;
+  whale_account: boolean;
+  pnl_30d_usd: number;
+  pnl_30d_pct: number;
 }
 
 export interface BotUser {

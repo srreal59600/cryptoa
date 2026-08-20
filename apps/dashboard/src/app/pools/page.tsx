@@ -3,17 +3,17 @@
 import { Card, ChainBadge, EmptyState, Td, Th } from '@/components/ui';
 import { usePoll } from '@/hooks/usePoll';
 import { api, CHAINS, shortAddress, timeAgo } from '@/lib/api';
+import { useI18n } from '@/lib/i18n';
 
 export default function PoolsPage() {
+  const { t } = useI18n();
   const pools = usePoll(() => api.pools('?limit=100'), 20_000);
 
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold">New liquidity pools</h1>
-        <p className="text-sm text-slate-400">
-          Resolved from V2 <code>PairCreated</code> and V3 <code>PoolCreated</code> logs on every registered factory.
-        </p>
+        <h1 className="text-2xl font-semibold">{t('pools.title')}</h1>
+        <p className="text-sm text-slate-400">{t('pools.subtitle')}</p>
       </header>
 
       <Card className="overflow-x-auto p-0">
@@ -21,13 +21,13 @@ export default function PoolsPage() {
           <table className="w-full">
             <thead className="border-b border-slate-800">
               <tr>
-                <Th>Created</Th>
-                <Th>Chain</Th>
-                <Th>DEX</Th>
-                <Th>Pool</Th>
-                <Th>Token 0</Th>
-                <Th>Token 1</Th>
-                <Th>Fee</Th>
+                <Th>{t('common.created')}</Th>
+                <Th>{t('common.chain')}</Th>
+                <Th>{t('common.dex')}</Th>
+                <Th>{t('common.pool')}</Th>
+                <Th>{t('common.token0')}</Th>
+                <Th>{t('common.token1')}</Th>
+                <Th>{t('common.fee')}</Th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -54,7 +54,7 @@ export default function PoolsPage() {
             </tbody>
           </table>
         ) : (
-          <EmptyState message={pools.loading ? 'Loading pools…' : 'No pools discovered yet.'} />
+          <EmptyState message={pools.loading ? t('pools.loading') : t('pools.empty')} />
         )}
       </Card>
     </div>

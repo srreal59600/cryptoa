@@ -110,6 +110,28 @@ type Alert struct {
 	Buyers24h      int     `json:"buyers_24h"`
 	WhaleTx24h     int     `json:"whale_tx_24h"`
 	Verdict        string  `json:"verdict"`
+
+	// Smart money context: the receiving wallet's own track record and how many
+	// proven wallets accumulated the same token in the last 24h.
+	WalletScore     float64 `json:"wallet_score"`
+	WalletTrades    int     `json:"wallet_trades"`
+	WalletLabel     string  `json:"wallet_label"`
+	SmartWallets24h int     `json:"smart_wallets_24h"`
+
+	// Risk filters: how big the trade is against the token's own 24h volume,
+	// and whether the value looks like it is circulating between wallets of
+	// the same owner instead of changing hands.
+	ImpactPct        float64 `json:"impact_pct"`
+	Volume24hUSD     float64 `json:"volume_24h_usd"`
+	LiquidityWarning bool    `json:"liquidity_warning"`
+	WashRisk         bool    `json:"wash_risk"`
+	WashReason       string  `json:"wash_reason"`
+
+	// WhaleAccount marks a counterparty already on the tracked big-account
+	// list, and PnL30dUSD/Pct is that account's 30d mark-to-market result.
+	WhaleAccount bool    `json:"whale_account"`
+	PnL30dUSD    float64 `json:"pnl_30d_usd"`
+	PnL30dPct    float64 `json:"pnl_30d_pct"`
 }
 
 // TokenScore is the 24h accumulation snapshot for one token on one chain.

@@ -60,6 +60,20 @@ var Chains = []Chain{
 			{Symbol: "WBTC", Address: addr("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"), Decimals: 8},
 			{Symbol: "LINK", Address: addr("0x514910771af9ca656af840dff83e8264ecf986ca"), Decimals: 18},
 			{Symbol: "PEPE", Address: addr("0x6982508145454ce325ddbe47a25d4ec3d2311933"), Decimals: 18},
+			{Symbol: "SHIB", Address: addr("0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE"), Decimals: 18},
+			{Symbol: "UNI", Address: addr("0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984"), Decimals: 18},
+			{Symbol: "AAVE", Address: addr("0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9"), Decimals: 18},
+			{Symbol: "MATIC", Address: addr("0x7D1AfA7B718fb893dB30A3aBc0Cfc608AaCfeBB0"), Decimals: 18},
+			{Symbol: "ARB", Address: addr("0xB50721BCf8d664c30412Cfbc6cf7a15145234ad1"), Decimals: 18},
+			{Symbol: "LDO", Address: addr("0x5A98FcBEA516Cf06857215779Fd812CA3beF1B32"), Decimals: 18},
+			{Symbol: "CRV", Address: addr("0xD533a949740bb3306d119CC777fa900bA034cd52"), Decimals: 18},
+			{Symbol: "MKR", Address: addr("0x9f8F72aA9304c8B593d555F12eF6589cC3A579A2"), Decimals: 18},
+			{Symbol: "APE", Address: addr("0x4d224452801ACEd8B2F0aebE155379bb5D594381"), Decimals: 18},
+			{Symbol: "stETH", Address: addr("0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84"), Decimals: 18},
+			{Symbol: "wstETH", Address: addr("0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0"), Decimals: 18},
+			{Symbol: "GRT", Address: addr("0xc944E90C64B2c07662A292be6244BDf05Cda44a7"), Decimals: 18},
+			{Symbol: "SAND", Address: addr("0x3845badAde8e6dFF049820680d1F14bD3903a5d0"), Decimals: 18},
+			{Symbol: "MANA", Address: addr("0x0F5D2fB29fb7d3CFeE444a200298f468908cC942"), Decimals: 18},
 		},
 		Factories: []Factory{
 			{Name: "Uniswap V2", Address: addr("0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"), Version: DexV2},
@@ -77,6 +91,13 @@ var Chains = []Chain{
 			{Symbol: "WBNB", Address: addr("0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"), Decimals: 18, Native: true},
 			{Symbol: "USDT", Address: addr("0x55d398326f99059fF775485246999027B3197955"), Decimals: 18, Stable: true},
 			{Symbol: "USDC", Address: addr("0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d"), Decimals: 18, Stable: true},
+			{Symbol: "BUSD", Address: addr("0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56"), Decimals: 18, Stable: true},
+			{Symbol: "CAKE", Address: addr("0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82"), Decimals: 18},
+			{Symbol: "ETH", Address: addr("0x2170Ed0880ac9A755fd29B2688956BD959F933F8"), Decimals: 18},
+			{Symbol: "BTCB", Address: addr("0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c"), Decimals: 18},
+			{Symbol: "XRP", Address: addr("0x1D2F0da169ceB9fC7B3144628dB156f3F6c60dBE"), Decimals: 18},
+			{Symbol: "ADA", Address: addr("0x3EE2200Efb3400fAbB9AacF31297cBdD1d435D47"), Decimals: 18},
+			{Symbol: "DOGE", Address: addr("0xbA2aE424d960c26247Dd6c32edC70B295c744C43"), Decimals: 8},
 		},
 		Factories: []Factory{
 			{Name: "PancakeSwap V2", Address: addr("0xcA143Ce32Fe78f1f7019d7d551a6402fc5350c73"), Version: DexV2},
@@ -94,6 +115,11 @@ var Chains = []Chain{
 			{Symbol: "WPOL", Address: addr("0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270"), Decimals: 18, Native: true},
 			{Symbol: "USDT", Address: addr("0xc2132D05D31c914a87C6611C10748AEb04B58e8F"), Decimals: 6, Stable: true},
 			{Symbol: "USDC", Address: addr("0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"), Decimals: 6, Stable: true},
+			{Symbol: "DAI", Address: addr("0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063"), Decimals: 18, Stable: true},
+			{Symbol: "WETH", Address: addr("0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619"), Decimals: 18},
+			{Symbol: "WBTC", Address: addr("0x1BFD67037B42Cf73acF2047067bd4F2C47D9BfD6"), Decimals: 8},
+			{Symbol: "LINK", Address: addr("0x53E0bca35eC356BD5ddDFebbD1Fc0fD03FaBad39"), Decimals: 18},
+			{Symbol: "AAVE", Address: addr("0xD6DF932A45C0f255f85145f286eA0b292B21C90B"), Decimals: 18},
 		},
 		Factories: []Factory{
 			{Name: "QuickSwap V2", Address: addr("0x5757371414417b7702ED1a912380ec961e188671"), Version: DexV2},
@@ -111,12 +137,28 @@ var Chains = []Chain{
 			{Symbol: "WETH", Address: addr("0x82aF49447D8a07e3bd95BD0d56f35241523fBab1"), Decimals: 18, Native: true},
 			{Symbol: "USDC", Address: addr("0xaf88d065e77c8cC2239327C5EDb3A432268e5831"), Decimals: 6, Stable: true},
 			{Symbol: "USDT", Address: addr("0xFd086bC7cd5C481DCC9C85ebE478A1C0b69FCbb9"), Decimals: 6, Stable: true},
+			{Symbol: "USDC.e", Address: addr("0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8"), Decimals: 6, Stable: true},
+			{Symbol: "DAI", Address: addr("0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1"), Decimals: 18, Stable: true},
+			{Symbol: "ARB", Address: addr("0x912CE59144191C1204E64559FE8253a0e49E6548"), Decimals: 18},
+			{Symbol: "WBTC", Address: addr("0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f"), Decimals: 8},
+			{Symbol: "LINK", Address: addr("0xf97f4df75117a78c1A5a0DBb814Af92458539FB4"), Decimals: 18},
+			{Symbol: "GMX", Address: addr("0xfc5A1A6EB076a2C7aD06eD22C90d7E710E35ad0a"), Decimals: 18},
 		},
 		Factories: []Factory{
 			{Name: "Camelot V2", Address: addr("0x6Ec48B24f682A38d2190777f09c316499500f6ff"), Version: DexV2},
 			{Name: "Uniswap V3", Address: addr("0x1F98431c8aD98523631AE4a59f267346ea31F984"), Version: DexV3},
 		},
 	},
+}
+
+// TokenByAddress returns the registered token for an address on this chain.
+func (c Chain) TokenByAddress(a common.Address) (Token, bool) {
+	for _, t := range c.Tokens {
+		if t.Address == a {
+			return t, true
+		}
+	}
+	return Token{}, false
 }
 
 // ChainByID returns the registry entry for a chain id.

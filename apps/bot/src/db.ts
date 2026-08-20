@@ -86,6 +86,26 @@ export class Database {
     );
   }
 
+  /**
+   * Erases the personal data we hold for a user: profile, watchlist and web
+   * sessions. Paid invoices stay for accounting, with the profile row gone.
+   */
+  async deleteUser(telegramId: number): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM watchlist WHERE telegram_id = $1', [telegramId]);
+      await client.query('DELETE FROM web_sessions WHERE telegram_id = $1', [telegramId]);
+      await client.query('DELETE FROM bot_users WHERE telegram_id = $1', [telegramId]);
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   async addWatch(
     telegramId: number,
     chainId: number,
@@ -96,7 +116,8 @@ export class Database {
     await this.pool.query(
       `INSERT INTO watchlist (telegram_id, chain_id, kind, address, label)
        VALUES ($1, $2, $3, lower($4), $5)
-       ON CONFLICT (telegram_id, chain_id, kind, address) DO NOTHING`,
+       ON CONFLICT (telegram_id, chain_id, kind, address)
+       DO UPDATE SET label = COALESCE(NULLIF(EXCLUDED.label, ''), watchlist.label)`,
       [telegramId, chainId, kind, address, label],
     );
   }
@@ -117,18 +138,68 @@ export class Database {
     return rows;
   }
 
-  /** Watchlist entries of every VIP, used to force-deliver tracked addresses. */
-  async watchIndex(): Promise<Map<number, Set<string>>> {
-    const { rows } = await this.pool.query<{ telegram_id: number; address: string }>(
-      'SELECT telegram_id, address FROM watchlist',
+  /**
+   * Watchlist entries of every VIP, keyed by user then address, with the
+   * nickname the user gave that address (empty string when unnamed).
+   */
+  async watchIndex(): Promise<Map<number, Map<string, string>>> {
+    const { rows } = await this.pool.query<{ telegram_id: number; address: string; label: string | null }>(
+      'SELECT telegram_id, address, label FROM watchlist',
     );
-    const index = new Map<number, Set<string>>();
+    const index = new Map<number, Map<string, string>>();
     for (const row of rows) {
       const id = Number(row.telegram_id);
-      if (!index.has(id)) index.set(id, new Set());
-      index.get(id)!.add(row.address.toLowerCase());
+      if (!index.has(id)) index.set(id, new Map());
+      index.get(id)!.set(row.address.toLowerCase(), row.label ?? '');
     }
     return index;
+  }
+
+  /** Renames a watchlist entry; returns false when the user does not track it. */
+  async setWatchLabel(telegramId: number, address: string, label: string): Promise<boolean> {
+    const res = await this.pool.query(
+      'UPDATE watchlist SET label = $3 WHERE telegram_id = $1 AND address = lower($2)',
+      [telegramId, address, label],
+    );
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  /** Biggest tracked accounts with their measured window result. */
+  async whaleAccounts(limit = 10) {
+    const { rows } = await this.pool.query(
+      `SELECT chain_id, address, volume_usd, tx_count, tokens, pnl_usd, pnl_pct, last_seen
+       FROM whale_accounts ORDER BY volume_usd DESC LIMIT $1`,
+      [limit],
+    );
+    return rows;
+  }
+
+  /**
+   * 30-day mark-to-market result of one wallet: everything it accumulated in
+   * the window valued at the latest observed price. Positions closed inside
+   * the window are not netted out, so this is an estimate of its entries.
+   */
+  async walletPnl(address: string, days = 30) {
+    const { rows } = await this.pool.query(
+      `WITH latest AS (
+         SELECT DISTINCT ON (chain_id, token) chain_id, token, price_usd
+         FROM transfers
+         WHERE price_usd > 0 AND seen_at >= now() - interval '48 hours'
+         ORDER BY chain_id, token, seen_at DESC
+       )
+       SELECT COALESCE(SUM(t.amount_usd), 0)           AS cost_usd,
+              COALESCE(SUM(t.amount * l.price_usd), 0) AS value_usd,
+              count(*)::int                            AS buys,
+              count(DISTINCT t.token)::int             AS tokens
+       FROM transfers t
+       JOIN latest l ON l.chain_id = t.chain_id AND l.token = t.token
+       WHERE lower(t.to_address) = lower($1)
+         AND t.direction IN ('dex_buy','cex_withdrawal')
+         AND t.price_usd > 0
+         AND t.seen_at >= now() - make_interval(days => $2)`,
+      [address, days],
+    );
+    return rows[0] as { cost_usd: number; value_usd: number; buys: number; tokens: number };
   }
 
   async topScores(limit = 10, chainId?: number) {
@@ -165,6 +236,45 @@ export class Database {
        ORDER BY seen_at DESC
        LIMIT $2`,
       [address, limit],
+    );
+    return rows;
+  }
+
+  /** Track record of published alerts per holding period. */
+  async performance(days = 30): Promise<
+    { horizon: string; samples: number; win_rate: number; avg_return: number; best: number; worst: number }[]
+  > {
+    const horizons: [string, string][] = [
+      ['1h', 'ret_1h'],
+      ['4h', 'ret_4h'],
+      ['24h', 'ret_24h'],
+    ];
+    const out = [];
+    for (const [horizon, column] of horizons) {
+      const { rows } = await this.pool.query(
+        `SELECT count(${column})::int AS samples,
+                COALESCE(AVG((${column} > 0)::int::float8), 0) AS win_rate,
+                COALESCE(AVG(${column}), 0) AS avg_return,
+                COALESCE(MAX(${column}), 0) AS best,
+                COALESCE(MIN(${column}), 0) AS worst
+         FROM alert_outcomes
+         WHERE created_at >= now() - make_interval(days => $1)`,
+        [days],
+      );
+      out.push({ horizon, ...rows[0] });
+    }
+    return out;
+  }
+
+  /** Wallets with the strongest realised 24h forward returns. */
+  async smartWallets(limit = 10) {
+    const { rows } = await this.pool.query(
+      `SELECT chain_id, address, trades, wins, avg_ret_24h, score
+       FROM wallet_scores
+       WHERE trades >= 3
+       ORDER BY score DESC, trades DESC
+       LIMIT $1`,
+      [limit],
     );
     return rows;
   }

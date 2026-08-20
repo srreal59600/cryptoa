@@ -1,6 +1,72 @@
-import type { ReactNode } from 'react';
+'use client';
+
+import { useState, type ReactNode } from 'react';
 
 import { CHAINS, usd } from '@/lib/api';
+
+// Trust Wallet publishes a logo per contract address, keyed by its own chain
+// folder names.
+const LOGO_CHAIN: Record<number, string> = {
+  1: 'ethereum',
+  56: 'smartchain',
+  137: 'polygon',
+  42161: 'arbitrum',
+};
+
+function logoURL(chainId: number, token: string) {
+  const chain = LOGO_CHAIN[chainId];
+  if (!chain || !/^0x[0-9a-fA-F]{40}$/.test(token)) return '';
+  return `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/${chain}/assets/${token}/logo.png`;
+}
+
+// TokenIcon shows the coin logo and falls back to its initial when the asset
+// has no published icon, so rows never jump around.
+export function TokenIcon({
+  chainId,
+  token,
+  symbol,
+  size = 20,
+}: {
+  chainId: number;
+  token: string;
+  symbol: string;
+  size?: number;
+}) {
+  const [failed, setFailed] = useState(false);
+  const url = logoURL(chainId, token);
+  const box = { width: size, height: size };
+
+  if (!url || failed) {
+    return (
+      <span
+        style={box}
+        className="inline-flex shrink-0 items-center justify-center rounded-full bg-slate-700 text-[10px] font-semibold text-slate-200"
+      >
+        {symbol.slice(0, 2).toUpperCase()}
+      </span>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={url}
+      alt={symbol}
+      style={box}
+      onError={() => setFailed(true)}
+      className="shrink-0 rounded-full bg-slate-800"
+    />
+  );
+}
+
+// TokenCell pairs the logo with the symbol for use inside tables and feeds.
+export function TokenCell({ chainId, token, symbol }: { chainId: number; token: string; symbol: string }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <TokenIcon chainId={chainId} token={token} symbol={symbol} />
+      <span className="font-medium text-slate-100">{symbol}</span>
+    </span>
+  );
+}
 
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (

@@ -51,8 +51,8 @@ export function loadConfig(): BotConfig {
       .split(',')
       .map((v) => Number(v.trim()))
       .filter((v) => Number.isFinite(v) && v > 0),
-    vipPriceUsd: num(process.env.VIP_PRICE_USD, 99),
-    vipPaymentAddress: process.env.VIP_PAYMENT_ADDRESS ?? '',
+    vipPriceUsd: num(process.env.VIP_PRICE_USD, 9.99),
+    vipPaymentAddress: process.env.PAYMENT_ADDRESS ?? process.env.VIP_PAYMENT_ADDRESS ?? '',
     dashboardUrl: process.env.DASHBOARD_URL ?? 'http://localhost:3000',
   };
 }

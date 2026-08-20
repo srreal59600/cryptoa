@@ -1,10 +1,14 @@
-import { Telegraf } from 'telegraf';
+import { Context, Telegraf } from 'telegraf';
 import { message } from 'telegraf/filters';
+import type { Message, Update } from 'telegraf/types';
 
 import { loadConfig } from './config';
 import { Database } from './db';
 import { AlertDispatcher } from './dispatcher';
-import { amount, esc, short, usd } from './format';
+import { amount, esc, pct, short, usd } from './format';
+
+/** Context of a text command handler, where ctx.message is always present. */
+type CommandContext = Context<Update.MessageUpdate<Message.TextMessage>>;
 
 const CHAIN_NAMES: Record<number, string> = {
   1: 'Ethereum',
@@ -19,6 +23,9 @@ async function main(): Promise<void> {
   const bot = new Telegraf(cfg.token);
 
   const isAdmin = (id?: number): boolean => !!id && cfg.adminIds.includes(id);
+
+  const isVip = (user: { tier: string; vip_expires_at: Date | null }): boolean =>
+    user.tier === 'vip' && (!user.vip_expires_at || new Date(user.vip_expires_at) > new Date());
 
   const ensureUser = async (ctx: { from?: { id: number; username?: string; first_name?: string } }) => {
     if (!ctx.from) return null;
@@ -39,11 +46,16 @@ async function main(): Promise<void> {
         '/top — highest accumulation scores',
         '/token `<address|symbol>` — token breakdown',
         '/wallet `<address>` — recent whale activity',
-        '/watch `<address>` — track a token or wallet',
-        '/unwatch `<address>` · /list',
+        '/track `<address> <isim>` — VIP: hesabı takma adla takip et, hareketlerinde DM at',
+        '/untrack `<address>` · /list · /nick `<address> <isim>`',
+        '/whales — takip edilen dev hesaplar',
+        '/pnl `<address>` — cüzdanın son 30 günlük tahmini sonucu',
         '/threshold `<usd>` — alert size for DMs',
+        '/perf — how past signals performed',
+        '/smart — smart money wallet leaderboard',
         '/mute · /unmute · /status',
         '/vip — upgrade for real\\-time alerts',
+        '/delete — verilerini sil',
       ].join('\n'),
     );
   });
@@ -130,18 +142,123 @@ async function main(): Promise<void> {
     await ctx.replyWithMarkdownV2([`👛 *${esc(short(address))}* recent activity`, '', ...lines].join('\n'));
   });
 
-  bot.command('watch', async (ctx) => {
+  /**
+   * Personal tracking is a paid feature: /track <address> [nickname…]
+   * [chain_id]. The nickname is private to the user and is used as the header
+   * of every DM about that address. /watch is the old name of the command.
+   */
+  const track = async (ctx: CommandContext) => {
     const user = await ensureUser(ctx);
     if (!user) return;
-    const parts = ctx.message.text.split(/\s+/);
-    const address = parts[1];
-    const chainId = Number(parts[2] ?? 1);
-    if (!address?.startsWith('0x')) {
-      await ctx.reply('Usage: /watch <0x address> [chain_id]');
+    if (!isVip(user)) {
+      await ctx.reply('Kişisel takip VIP üyelere açık. /vip ile üyelik alabilirsin.');
       return;
     }
-    await db.addWatch(user.telegram_id, chainId, address.length === 42 ? 'wallet' : 'token', address);
-    await ctx.reply(`Watching ${short(address)} on chain ${chainId}. You will get every alert involving it.`);
+    const parts = ctx.message.text.trim().split(/\s+/).slice(1);
+    const address = parts.shift();
+    if (!address?.startsWith('0x')) {
+      await ctx.reply('Kullanım: /track <0x adres> <takma ad> [chain_id]');
+      return;
+    }
+    let chainId = 1;
+    if (parts.length > 0 && /^\d+$/.test(parts[parts.length - 1])) {
+      chainId = Number(parts.pop());
+    }
+    const alias = parts.join(' ').slice(0, 64);
+
+    await db.addWatch(
+      user.telegram_id,
+      chainId,
+      address.length === 42 ? 'wallet' : 'token',
+      address,
+      alias,
+    );
+    await ctx.reply(
+      `Takipte: ${alias || short(address)} (${short(address)}, chain ${chainId}). Bu hesabın her hareketinde sana DM atacağım.`,
+    );
+  };
+
+  bot.command('track', track);
+  bot.command('watch', track);
+
+  bot.command('nick', async (ctx) => {
+    const user = await ensureUser(ctx);
+    if (!user) return;
+    const [, address, ...rest] = ctx.message.text.trim().split(/\s+/);
+    const alias = rest.join(' ').slice(0, 64);
+    if (!address?.startsWith('0x') || !alias) {
+      await ctx.reply('Kullanım: /nick <0x adres> <takma ad>');
+      return;
+    }
+    const ok = await db.setWatchLabel(user.telegram_id, address, alias);
+    await ctx.reply(ok ? `Takma ad kaydedildi: ${alias}` : 'Bu adres takip listende değil.');
+  });
+
+  bot.command('whales', async (ctx) => {
+    const user = await ensureUser(ctx);
+    if (!user) return;
+    if (!isVip(user)) {
+      await ctx.reply('Dev hesap listesi VIP üyelere açık. /vip');
+      return;
+    }
+    const rows = await db.whaleAccounts(10);
+    if (rows.length === 0) {
+      await ctx.reply('Henüz eşiği aşan hesap yok — liste 15 dakikada bir yenileniyor.');
+      return;
+    }
+    const lines = rows.map(
+      (r, i) =>
+        `${i + 1}\\. \`${esc(short(String(r.address)))}\` \\(${esc(CHAIN_NAMES[Number(r.chain_id)] ?? r.chain_id)}\\) — hacim ${esc(usd(Number(r.volume_usd)))}, 30g ${esc(usd(Number(r.pnl_usd)))} \\(${esc(pct(Number(r.pnl_pct), true))}\\)`,
+    );
+    await ctx.replyWithMarkdownV2(
+      ['🐋 *Takipteki dev hesaplar*', '', ...lines, '', esc('Takip için: /track <adres> <takma ad>')].join('\n'),
+    );
+  });
+
+  bot.command('pnl', async (ctx) => {
+    const user = await ensureUser(ctx);
+    if (!user) return;
+    if (!isVip(user)) {
+      await ctx.reply('Cüzdan kâr/zarar analizi VIP üyelere açık. /vip');
+      return;
+    }
+    const [, address] = ctx.message.text.trim().split(/\s+/);
+    if (!address?.startsWith('0x')) {
+      await ctx.reply('Kullanım: /pnl <0x adres>');
+      return;
+    }
+    const row = await db.walletPnl(address, 30);
+    const cost = Number(row?.cost_usd ?? 0);
+    if (cost <= 0) {
+      await ctx.reply('Bu cüzdan için son 30 günde fiyatlanabilen alım kaydı yok.');
+      return;
+    }
+    const value = Number(row.value_usd);
+    const diff = value - cost;
+    await ctx.replyWithMarkdownV2(
+      [
+        `📈 *${esc(short(address))}* — son 30 gün`,
+        '',
+        `Alım maliyeti: ${esc(usd(cost))}`,
+        `Güncel değer: ${esc(usd(value))}`,
+        `Tahmini sonuç: *${esc(usd(diff))}* \\(${esc(pct(diff / cost, true))}\\)`,
+        `İşlem: ${esc(row.buys)} alım · ${esc(row.tokens)} token`,
+        '',
+        esc('Girişlerin güncel fiyata göre değerlemesidir; satışlar, köprüler ve gas hesaba katılmaz. Yatırım tavsiyesi değildir.'),
+      ].join('\n'),
+    );
+  });
+
+  bot.command('untrack', async (ctx) => {
+    const user = await ensureUser(ctx);
+    if (!user) return;
+    const [, address] = ctx.message.text.split(/\s+/);
+    if (!address) {
+      await ctx.reply('Kullanım: /untrack <0x adres>');
+      return;
+    }
+    const removed = await db.removeWatch(user.telegram_id, address);
+    await ctx.reply(removed > 0 ? 'Takipten çıkarıldı.' : 'Bu adres takip listende değil.');
   });
 
   bot.command('unwatch', async (ctx) => {
@@ -164,7 +281,11 @@ async function main(): Promise<void> {
       await ctx.reply('Your watchlist is empty. Add one with /watch <address>.');
       return;
     }
-    await ctx.reply(items.map((i) => `• [${i.kind}] ${i.address} (chain ${i.chain_id})`).join('\n'));
+    await ctx.reply(
+      items
+        .map((i) => `• ${i.label || '(isimsiz)'} — ${i.address} [${i.kind}, chain ${i.chain_id}]`)
+        .join('\n'),
+    );
   });
 
   bot.command('threshold', async (ctx) => {
@@ -192,6 +313,20 @@ async function main(): Promise<void> {
     if (!user) return;
     await db.setMuted(user.telegram_id, false);
     await ctx.reply('Alerts resumed.');
+  });
+
+  bot.command('delete', async (ctx) => {
+    const id = ctx.from?.id;
+    if (!id) return;
+    const [, confirm] = ctx.message.text.split(/\s+/);
+    if (confirm !== 'CONFIRM') {
+      await ctx.reply(
+        'This erases your WhaleRadar profile, watchlist and web sessions. Send /delete CONFIRM to proceed.',
+      );
+      return;
+    }
+    await db.deleteUser(id);
+    await ctx.reply('Your data has been deleted. Send /start if you ever want to come back.');
   });
 
   bot.command('vip', async (ctx) => {
@@ -229,6 +364,43 @@ async function main(): Promise<void> {
         `Payment claim from ${user.telegram_id} (@${user.username ?? '-'}): ${txHash}`,
       );
     }
+  });
+
+  bot.command('perf', async (ctx) => {
+    await ensureUser(ctx);
+    const rows = await db.performance(30);
+    const tracked = rows.find((r) => r.horizon === '1h')?.samples ?? 0;
+    if (tracked === 0) {
+      await ctx.reply('No settled signals yet — the first results appear one hour after the first alert.');
+      return;
+    }
+    const lines = rows.map(
+      (r) =>
+        `*${esc(r.horizon)}* — ${esc(r.samples)} signals · win rate ${esc(pct(Number(r.win_rate)))} · avg ${esc(pct(Number(r.avg_return), true))}`,
+    );
+    await ctx.replyWithMarkdownV2(
+      [
+        '📈 *Signal track record \\(last 30 days\\)*',
+        '',
+        ...lines,
+        '',
+        esc('Measured from the alert price to the observed price after each holding period. Past results are not a promise of future returns.'),
+      ].join('\n'),
+    );
+  });
+
+  bot.command('smart', async (ctx) => {
+    await ensureUser(ctx);
+    const rows = await db.smartWallets(10);
+    if (rows.length === 0) {
+      await ctx.reply('No wallet track records yet — scoring needs a few days of history.');
+      return;
+    }
+    const lines = rows.map(
+      (r, i) =>
+        `${i + 1}\\. \`${esc(short(r.address))}\` \\(${esc(CHAIN_NAMES[Number(r.chain_id)] ?? r.chain_id)}\\) — score *${esc(Number(r.score).toFixed(0))}*, ${esc(r.trades)} trades, avg ${esc(pct(Number(r.avg_ret_24h), true))}`,
+    );
+    await ctx.replyWithMarkdownV2(['🧠 *Smart money leaderboard \\(24h forward returns\\)*', '', ...lines].join('\n'));
   });
 
   bot.command('myid', (ctx) => ctx.reply(`Your Telegram ID: ${ctx.from?.id}`));

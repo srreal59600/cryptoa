@@ -3,7 +3,6 @@ package pipeline
 import (
 	"context"
 	"log/slog"
-	"math"
 	"math/big"
 	"sync"
 	"time"
@@ -27,8 +26,24 @@ import (
 // the largest one is published as a single alert.
 const alertWindow = 6 * time.Second
 
+// routeCooldown is how long a wallet pair is muted after it produced an alert.
+// Protocol plumbing (lending vaults, flash loans, bridge legs) repeats the same
+// route with near-identical size every few minutes and would drown the channel.
+const routeCooldown = 30 * time.Minute
+
 // contextWindow is the lookback used to attach 24h flow context to an alert.
 const contextWindow = 24 * time.Hour
+
+// smartWalletMinScore is the wallet track-record score that counts as "smart
+// money" when looking for a cluster of proven buyers on one token.
+const smartWalletMinScore = 65
+
+// washWindow is how far back value is followed when checking whether a
+// transfer is really a round trip between wallets of the same owner.
+const washWindow = 7 * 24 * time.Hour
+
+// pnlWindow is the horizon of the wallet profit/loss figure shown to VIPs.
+const pnlWindow = 30 * 24 * time.Hour
 
 // Runner owns the full listen -> decode -> price -> filter -> persist -> alert
 // pipeline for a single chain.
@@ -47,6 +62,7 @@ type Runner struct {
 
 	pendingMu sync.Mutex
 	pending   map[common.Hash]model.Transfer
+	routes    map[string]time.Time
 
 	mu       sync.RWMutex
 	tracked  map[common.Address]struct{}
@@ -73,6 +89,7 @@ func NewRunner(ctx context.Context, cfg config.Config, chain config.Chain, wsURL
 		rdb:     rdb,
 		tracked: map[common.Address]struct{}{},
 		pending: map[common.Hash]model.Transfer{},
+		routes:  map[string]time.Time{},
 	}
 
 	for _, t := range chain.Tokens {
@@ -232,6 +249,9 @@ func (r *Runner) queueAlert(t model.Transfer) {
 	r.pendingMu.Lock()
 	defer r.pendingMu.Unlock()
 
+	if r.routeMuted(t) {
+		return
+	}
 	if best, ok := r.pending[t.TxHash]; ok {
 		if t.AmountUSD > best.AmountUSD {
 			r.pending[t.TxHash] = t
@@ -258,23 +278,60 @@ func (r *Runner) flushAlert(tx common.Hash) {
 	}
 }
 
-// alertable keeps the Telegram channels actionable: accumulation flow
-// (exchange withdrawals, DEX buys) alerts from the free-tier floor up,
-// distribution flow needs to be much larger to be worth a message, and plain
-// wallet-to-wallet / mint / burn traffic stays out of the channels entirely
-// unless UntaggedMinUSD is explicitly enabled. Everything is still persisted
-// and visible on the dashboard.
-func (r *Runner) alertable(t model.Transfer) bool {
-	switch t.Direction {
-	case model.DirCEXWithdrawal, model.DirDexBuy:
-		return t.AmountUSD >= r.cfg.FreeMinUSD
-	case model.DirCEXDeposit, model.DirDexSell:
-		return t.AmountUSD >= math.Max(r.cfg.FreeMinUSD, r.cfg.SellMinUSD)
-	default:
-		if r.cfg.UntaggedMinUSD <= 0 {
-			return false
+// routeMuted reports whether this wallet pair already produced an alert inside
+// the cooldown, and starts a new cooldown when it did not. Callers must hold
+// pendingMu.
+func (r *Runner) routeMuted(t model.Transfer) bool {
+	now := time.Now()
+	key := t.Token.Hex() + t.From.Hex() + t.To.Hex()
+	if last, ok := r.routes[key]; ok && now.Sub(last) < routeCooldown {
+		return true
+	}
+	for k, seen := range r.routes {
+		if now.Sub(seen) >= routeCooldown {
+			delete(r.routes, k)
 		}
-		return t.AmountUSD >= math.Max(r.cfg.FreeMinUSD, r.cfg.UntaggedMinUSD)
+	}
+	r.routes[key] = now
+	return false
+}
+
+// alertable keeps the channels to genuine whale size: everything smaller is
+// still persisted and visible on the dashboard, but never published.
+func (r *Runner) alertable(t model.Transfer) bool {
+	return t.AmountUSD >= AlertLimit(r.chain, r.cfg.Limits, t)
+}
+
+// AlertLimit is the floor a transfer must clear to be published. Stablecoins
+// shuttle between exchanges all day so they need the most size, the wrapped
+// native asset sits in the middle and other ERC-20s are the cheapest to move.
+// A labelled counterparty (exchange, pool, fund) makes the move informative,
+// so those clear at half the anonymous floor.
+func AlertLimit(chain config.Chain, l config.AlertLimits, t model.Transfer) float64 {
+	tok, registered := chain.TokenByAddress(t.Token)
+	known := t.FromTag != nil || t.ToTag != nil
+	supply := t.Direction == model.DirMint || t.Direction == model.DirBurn
+
+	switch {
+	case registered && tok.Stable:
+		switch {
+		case supply:
+			return l.StableMint
+		case known:
+			return l.StableKnown
+		default:
+			return l.StableUnknown
+		}
+	case registered && tok.Native:
+		if known {
+			return l.MajorKnown
+		}
+		return l.MajorUnknown
+	default:
+		if known {
+			return l.TokenKnown
+		}
+		return l.TokenUnknown
 	}
 }
 
@@ -306,7 +363,26 @@ func (r *Runner) publishTransferAlert(ctx context.Context, t model.Transfer) err
 		CreatedAt:   time.Now().UTC(),
 	}
 	r.attachContext(ctx, &a, t)
-	return store.PublishAlert(ctx, r.rdb, a)
+	if err := store.PublishAlert(ctx, r.rdb, a); err != nil {
+		return err
+	}
+	// Track the signal so its 1h/4h/24h outcome can be measured later.
+	if err := r.pg.RecordAlertOutcome(ctx, store.AlertOutcome{
+		AlertID:     a.ID,
+		ChainID:     t.ChainID,
+		Token:       a.Token,
+		TokenSymbol: a.TokenSymbol,
+		Direction:   a.Direction,
+		Tier:        a.Tier,
+		Wallet:      a.To,
+		AmountUSD:   a.AmountUSD,
+		Score:       a.Score,
+		EntryPrice:  a.PriceUSD,
+		CreatedAt:   a.CreatedAt,
+	}); err != nil {
+		r.logger.Warn("recording alert outcome failed", "alert", a.ID, "err", err)
+	}
+	return nil
 }
 
 // attachContext enriches an alert with the token's 24h flow so the message
@@ -323,6 +399,57 @@ func (r *Runner) attachContext(ctx context.Context, a *model.Alert, t model.Tran
 	a.Buyers24h = s.UniqueBuyers
 	a.WhaleTx24h = s.WhaleTxCount
 	a.Verdict = verdict(s.Score)
+
+	// Smart money: the receiving wallet's own track record, plus how many
+	// proven wallets accumulated this token in the same window.
+	if w, ok, err := r.pg.WalletScore(ctx, t.ChainID, t.To.Hex()); err == nil && ok {
+		a.WalletScore = w.Score
+		a.WalletTrades = w.Trades
+		a.WalletLabel = scoring.WalletLabel(w.Score)
+	}
+	if n, err := r.pg.SmartWalletsOnToken(ctx, t.ChainID, t.Token.Hex(), contextWindow, smartWalletMinScore); err == nil {
+		a.SmartWallets24h = n
+	}
+	r.attachRisk(ctx, a, t)
+}
+
+// attachRisk runs the manipulation filters: how much of the token's own 24h
+// volume this single transfer represents, and whether the value is cycling
+// back to where it came from.
+func (r *Runner) attachRisk(ctx context.Context, a *model.Alert, t model.Transfer) {
+	in := scoring.RiskInput{AmountUSD: t.AmountUSD}
+
+	vol, err := r.pg.TokenVolume(ctx, t.ChainID, t.Token.Hex(), contextWindow)
+	if err != nil {
+		r.logger.Debug("token volume lookup failed", "token", t.TokenSymbol, "err", err)
+		return
+	}
+	in.Volume24hUSD = vol
+
+	if t.From == t.To {
+		in.SelfTransfer = true
+	} else if t.FromTag != nil && t.ToTag != nil && t.FromTag.Label == t.ToTag.Label {
+		in.SelfTransfer = true
+	} else if back, err := r.pg.RoundTripUSD(ctx, t.ChainID, t.Token.Hex(), t.From.Hex(), t.To.Hex(), washWindow); err == nil {
+		in.ReturnedUSD = back
+	}
+
+	risk := scoring.AssessRisk(in)
+	a.Volume24hUSD = vol
+	a.ImpactPct = risk.ImpactPct
+	a.LiquidityWarning = risk.LiquidityWarning
+	a.WashRisk = risk.WashRisk
+	a.WashReason = risk.WashReason
+
+	// Big-account context: is the receiver one of the accounts we follow, and
+	// how did its last 30 days go?
+	if ok, err := r.pg.IsWhaleAccount(ctx, t.ChainID, t.To.Hex()); err == nil && ok {
+		a.WhaleAccount = true
+		if p, err := r.pg.WalletPnLWindow(ctx, t.ChainID, t.To.Hex(), pnlWindow); err == nil {
+			a.PnL30dUSD = p.PnLUSD
+			a.PnL30dPct = p.PnLPct
+		}
+	}
 }
 
 func verdict(score float64) string {

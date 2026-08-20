@@ -4,10 +4,12 @@ import { useEffect, useState } from 'react';
 
 import { Card, EmptyState, Td, Th } from '@/components/ui';
 import { api, BotUser, CHAINS, usd } from '@/lib/api';
+import { useI18n } from '@/lib/i18n';
 
 const KEY_STORAGE = 'whaleradar.adminKey';
 
 export default function AdminPage() {
+  const { t } = useI18n();
   const [adminKey, setAdminKey] = useState('');
   const [users, setUsers] = useState<BotUser[] | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -57,13 +59,13 @@ export default function AdminPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold">Admin</h1>
-        <p className="text-sm text-slate-400">Manage VIP subscriptions and wallet labelling. Requires the API admin key.</p>
+        <h1 className="text-2xl font-semibold">{t('admin.title')}</h1>
+        <p className="text-sm text-slate-400">{t('admin.subtitle')}</p>
       </header>
 
       <Card className="flex flex-wrap items-end gap-3">
         <label className="flex-1 text-xs text-slate-400">
-          Admin API key
+          {t('admin.key')}
           <input
             type="password"
             value={adminKey}
@@ -76,7 +78,7 @@ export default function AdminPage() {
           onClick={() => void loadUsers(adminKey)}
           className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-500"
         >
-          Load subscribers
+          {t('admin.load')}
         </button>
       </Card>
 
@@ -84,18 +86,18 @@ export default function AdminPage() {
 
       <Card className="overflow-x-auto p-0">
         <div className="border-b border-slate-800 px-5 py-4">
-          <h2 className="font-semibold">Telegram subscribers</h2>
+          <h2 className="font-semibold">{t('admin.subscribers')}</h2>
         </div>
         {users && users.length > 0 ? (
           <table className="w-full">
             <thead className="border-b border-slate-800">
               <tr>
-                <Th>Telegram ID</Th>
-                <Th>Username</Th>
-                <Th>Tier</Th>
-                <Th>VIP expires</Th>
-                <Th>DM threshold</Th>
-                <Th>Actions</Th>
+                <Th>{t('admin.telegramId')}</Th>
+                <Th>{t('admin.username')}</Th>
+                <Th>{t('admin.tier')}</Th>
+                <Th>{t('admin.vipExpires')}</Th>
+                <Th>{t('admin.dmThreshold')}</Th>
+                <Th>{t('admin.actions')}</Th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -110,10 +112,10 @@ export default function AdminPage() {
                   <Td>{usd(u.min_usd)}</Td>
                   <Td className="space-x-2">
                     <button onClick={() => void grant(u.telegram_id, 'vip', 30)} className="rounded bg-emerald-600/80 px-2 py-1 text-xs">
-                      +30d VIP
+                      {t('admin.grant30')}
                     </button>
                     <button onClick={() => void grant(u.telegram_id, 'free', 0)} className="rounded bg-rose-600/80 px-2 py-1 text-xs">
-                      Revoke
+                      {t('admin.revoke')}
                     </button>
                   </Td>
                 </tr>
@@ -121,28 +123,28 @@ export default function AdminPage() {
             </tbody>
           </table>
         ) : (
-          <EmptyState message="Enter the admin key and load subscribers." />
+          <EmptyState message={t('admin.empty')} />
         )}
       </Card>
 
       <Card className="space-y-4">
-        <h2 className="font-semibold">Wallet labelling</h2>
+        <h2 className="font-semibold">{t('admin.labelling')}</h2>
         <div className="grid gap-3 sm:grid-cols-4">
           <label className="text-xs text-slate-400">
-            Chain
+            {t('common.chain')}
             <select
               value={tagChain}
               onChange={(e) => setTagChain(Number(e.target.value))}
               className="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
             >
-              <option value={0}>All chains</option>
+              <option value={0}>{t('transfers.allChains')}</option>
               {Object.entries(CHAINS).map(([id, c]) => (
                 <option key={id} value={id}>{c.name}</option>
               ))}
             </select>
           </label>
           <label className="text-xs text-slate-400 sm:col-span-1">
-            Address
+            {t('admin.address')}
             <input
               value={tagAddress}
               onChange={(e) => setTagAddress(e.target.value.trim())}
@@ -151,7 +153,7 @@ export default function AdminPage() {
             />
           </label>
           <label className="text-xs text-slate-400">
-            Label
+            {t('admin.label')}
             <input
               value={tagLabel}
               onChange={(e) => setTagLabel(e.target.value)}
@@ -160,7 +162,7 @@ export default function AdminPage() {
             />
           </label>
           <label className="text-xs text-slate-400">
-            Category
+            {t('admin.category')}
             <select
               value={tagCategory}
               onChange={(e) => setTagCategory(e.target.value)}
@@ -177,7 +179,7 @@ export default function AdminPage() {
           disabled={!adminKey || !tagAddress}
           className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-500 disabled:opacity-40"
         >
-          Save label
+          {t('admin.saveLabel')}
         </button>
       </Card>
     </div>
