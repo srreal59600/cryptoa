@@ -49,6 +49,54 @@ docker compose restart scorer
 Migration'lar Postgres ilk açılışta `db/migrations` içinden otomatik uygulanır. Şemayı
 sıfırlamak için: `docker compose down -v`.
 
+## Ubuntu'da hızlı kurulum (Docker Engine)
+
+1. Docker + Docker Compose'u kur:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+echo "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+```
+
+2. Repoyu indir ve hazırla:
+
+```bash
+git clone https://github.com/srreal59600/cryptoa.git kripto
+cd kripto
+cp .env.example .env
+nano .env   # TELEGRAM_BOT_TOKEN, kanal ID'leri, RPC URL'leri ve ödeme adresini gir
+```
+
+3. Tüm servisleri başlat:
+
+```bash
+docker compose up --build
+```
+
+4. Dashboard ve API'yi aç:
+- http://localhost:3000
+- http://localhost:8080/health
+
+Canlı zincir dinleyicisi ve bot (gerçek token/RPC gerekli):
+
+```bash
+docker compose --profile live up -d listener
+docker compose --profile bot  up -d bot
+```
+
+Arayüzü denemek için örnek veri yükle:
+
+```bash
+docker compose exec -T postgres psql -U whaleradar -d whaleradar < db/demo_seed.sql
+docker compose restart scorer
+```
+
 ## Konfigürasyon
 
 Tüm ayarlar `.env` üzerinden (`.env.example` içinde açıklamalı liste). Kritik olanlar:
